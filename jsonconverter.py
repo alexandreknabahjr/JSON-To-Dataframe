@@ -9,6 +9,7 @@ class JsonConverter:
     ESTABELECIMENTO = 'estabelecimento'
     ATIVIDADES_SECUNDARIAS = 'atividades_secundarias'
     CNPJ = 'cnpj'
+    SAVED = "saved"
 
     def __init__(self):
         dotenv.load_dotenv()
@@ -24,19 +25,34 @@ class JsonConverter:
         self.df = self.setGeneralDF()
         self.socios = self.setSociosDF()
         self.atividadesSecundarias = self.setAtividadesSecundariasDF()
+
+    def renameJSONFiles(self):
+        for jsonFileName in os.listdir(self.subfolder):
+            if self.SAVED not in jsonFileName and jsonFileName.endswith('.json'):
+                originalFilePath = os.path.join(self.subfolder, jsonFileName)
+                # Create new filename with '-saved' suffix
+                name, ext = os.path.splitext(jsonFileName)
+                savedFileName = f'{name}-{self.SAVED}{ext}'
+                savedFilePath = os.path.join(self.subfolder, savedFileName)
+                try:
+                    # Rename the file
+                    os.rename(originalFilePath, savedFilePath)
+                    print(f"Renamed {jsonFileName} to {savedFileName}")
+                except Exception as e:
+                    print(f"Error renaming {jsonFileName}: {e}")
     
     def readJSONSubfolder(self):
         
         for jsons in os.listdir(self.subfolder):
-            with open(os.path.join(self.subfolder, jsons)) as jsonFile:
-                data = json.load(jsonFile)
+            if self.SAVED not in jsons:
+                with open(os.path.join(self.subfolder, jsons)) as jsonFile:
+                    data = json.load(jsonFile)
+                    self.processNesteData(data, self.SOCIOS)
+                    self.processNesteData(data, self.ESTABELECIMENTO)
 
-                self.processNesteData(data, self.SOCIOS)
-                self.processNesteData(data, self.ESTABELECIMENTO)
+                df = pd.json_normalize(data)
 
-            df = pd.json_normalize(data)
-
-            self.dfList.append(df)
+                self.dfList.append(df)
 
     def processNesteData(self, data, field):
         if field == self.SOCIOS in data and data[self.SOCIOS]:
@@ -53,6 +69,9 @@ class JsonConverter:
     def setGeneralDF(self):
 
         self.readJSONSubfolder()
+
+        if not self.dfList:
+            return pd.DataFrame()
 
         superDF = pd.concat(self.dfList, ignore_index=True)
         superDF = superDF.fillna('')
@@ -74,27 +93,38 @@ class JsonConverter:
     def atividadesSecundariasToExcel(self):
         self.atividadesSecundarias.to_excel(self.atividadesSecundariasFileName, index=False)
 
-    def saveExcel(self):
-        self.dfToExcel()
-        self.sociosDfToExcel()
-        self.atividadesSecundariasToExcel()
+    def incrementalDFToExcel(self):
+        oldGeneralDF = pd.read_excel(io=self.generalFileName)
+        concatGeneralDF = pd.concat([oldGeneralDF, self.df], axis=0, ignore_index=True)
+        concatGeneralDF.to_excel(self.generalFileName, index=False)
+
+    def incrementalSociosDfToExcel(self):
+        oldSociosDF = pd.read_excel(io=self.socioFileName)
+        concatSociosDF = pd.concat([oldSociosDF, self.socios], axis = 0, ignore_index=True)
+        concatSociosDF.to_excel(self.socioFileName, index=False)
+
+    def incrementalAtividadesSecundariasToExcel(self):
+        oldAtividadesDF = pd.read_excel(io=self.atividadesSecundariasFileName)
+        concatAtividadesDF = pd.concat([oldAtividadesDF, self.atividadesSecundarias], axis = 0, ignore_index=True)
+        concatAtividadesDF.to_excel(self.atividadesSecundariasFileName, index=False)
+        
+    def firstSaveExcel(self):
+        if not self.df.empty:
+            self.dfToExcel()
+            self.sociosDfToExcel()
+            self.atividadesSecundariasToExcel()
+            self.renameJSONFiles()
+        else:
+            pass
+
+    def incrementalSaveExcel(self):
+        if not self.df.empty:
+            self.incrementalDFToExcel()
+            self.incrementalSociosDfToExcel()
+            self.incrementalAtividadesSecundariasToExcel()
+            self.renameJSONFiles()
+        else:
+            pass
 
 teste = JsonConverter()
-teste.saveExcel()
 print(teste.socios)
-
-"""
-if 'socios' in data and data['socios']:
-    socios = data['socios']
-    for socio in socios:
-        socio['cnpj'] = data.get('estabelecimento', {}).get('cnpj', None)
-        self.sociosList.append(socio)
-"""
-
-"""
-if 'estabelecimento' in data and 'atividades_secundarias' in data['estabelecimento']:
-    atividades_secundarias = data['estabelecimento']['atividades_secundarias']
-    for atividade_secundaria in atividades_secundarias:
-        atividade_secundaria['cnpj'] = data.get('estabelecimento', {}).get('cnpj', None)  # Track cnpj_raiz
-        self.atividadesSecundariasList.append(atividade_secundaria)
-"""
